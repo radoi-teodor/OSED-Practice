@@ -140,8 +140,12 @@ found_name:
     mov eax, [eax + edx*4]       ; RVA functie gasita
     add eax, ebx                 ; VMA functie in EAX
 
+    mov [esp+36], eax            ; dupa cei 4 registrii salvati (8 registrii * 4 bytes) vom salva adresa de return
+    ; 32 + 4 bytes pentru a sari peste adresa de return stocata in stiva
+
 end_find_name:
     popad                        ; restauram registrele, am gasit functia
+    mov eax, [esp+4]             ; restauram valoarea functiei cautate, stacata dupa adresa de return (parametrul functiei se pierde in proces)
     ret
 """
 
