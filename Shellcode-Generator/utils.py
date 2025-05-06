@@ -42,15 +42,22 @@ def execute_shellcode(shellcode):
     # asteptam terminarea executiei shellcode-ului
     ctypes.windll.kernel32.WaitForSingleObject(ctypes.c_int(ht), ctypes.c_int(-1))
 
-def disaply_shellcode(shellcode):
+def disaply_shellcode(shellcode, var_name = "shellcode", concatenate=False):
     print("Shellcode length:", len(shellcode))
-    shown_shellcode = "shellcode =  b\""
+    shown_shellcode = var_name+" "
+
+    if concatenate:
+        shown_shellcode += "+"
+    else:
+        shown_shellcode += " "
+
+    shown_shellcode += "= b\""
 
     idx = 0
     col_number = 10
     for byte in shellcode:
         if(idx % col_number == 0):
-            shown_shellcode += "\"\nshellcode += b\""
+            shown_shellcode += "\"\n"+var_name+" += b\""
         shown_shellcode += "\\x" + format(byte, '02x')
         idx = idx + 1
     shown_shellcode += "\""
