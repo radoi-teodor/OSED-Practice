@@ -15,7 +15,7 @@ bad_chars = args.b
 print("Using the following bad characters")
 print()
 
-utils.disaply_shellcode(bad_chars, var_name="ignored_chars")
+utils.display_shellcode(bad_chars, var_name="ignored_chars")
 
 print()
 
@@ -27,4 +27,4 @@ for byte in bad_chars:
     if byte in av_bytes:
         av_bytes.remove(byte)
 
-utils.disaply_shellcode(av_bytes, var_name=args.n, concatenate=args.c)
+utils.display_shellcode(av_bytes, var_name=args.n, concatenate=args.c)

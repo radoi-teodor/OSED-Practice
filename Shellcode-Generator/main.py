@@ -17,7 +17,7 @@ parser.add_argument("-p", metavar="PORT", default="443", help=" set the IP of th
 
 # encoding-ul este optional
 parser.add_argument("-e", action="store_true", help=" enable encoding (if specifying bad chars)")
-parser.add_argument("-b", metavar="BAD CHARS", type=utils.parse_bytes, default="\\x00\\x0a\\x0d", help=" bad characters")
+parser.add_argument("-b", metavar="BAD CHARS", type=utils.parse_bytes, help=" bad characters")
 
 args = parser.parse_args()
 
@@ -80,4 +80,4 @@ if(args.x):
     utils.execute_shellcode(shellcode)
 elif(args.d):
     # vom afisa shellcode-ul
-    utils.disaply_shellcode(shellcode)
+    utils.display_shellcode(shellcode)

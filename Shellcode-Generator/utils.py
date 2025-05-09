@@ -42,7 +42,7 @@ def execute_shellcode(shellcode):
     # asteptam terminarea executiei shellcode-ului
     ctypes.windll.kernel32.WaitForSingleObject(ctypes.c_int(ht), ctypes.c_int(-1))
 
-def disaply_shellcode(shellcode, var_name = "shellcode", concatenate=False):
+def display_shellcode(shellcode, var_name = "shellcode", concatenate=False):
     print("Shellcode length:", len(shellcode))
     shown_shellcode = var_name+" "
 
